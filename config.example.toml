@@ -1,0 +1,58 @@
+# Configuration PC Watch — copier vers ~/.config/pc_watch/config.toml
+# Toutes les clés sont optionnelles : les valeurs par défaut sont utilisées
+# si le fichier est absent.
+
+[general]
+refresh_seconds = 30
+verbosity = "normal"        # quiet | normal | verbose | debug
+simplicity = "normal"       # simple | normal | expert
+finding_ttl_seconds = 3600  # durée de conservation des constats dans la TUI
+# rules = ""                 # fichier de règles alternatif
+# rules_local = "~/.config/pc_watch/rules.local.toml"
+
+[thresholds]
+cpu_warn_percent = 90
+cpu_crit_percent = 98
+disk_warn_percent = 85
+disk_crit_percent = 95
+mem_warn_percent = 85
+mem_crit_percent = 95
+swap_warn_percent = 50
+swap_crit_percent = 80
+temp_warn_c = 75
+temp_crit_c = 90
+load_warn_per_cpu = 1.5
+load_crit_per_cpu = 3.0
+smart_temp_warn_c = 60
+smart_temp_crit_c = 75
+smart_wear_warn_percent = 80
+smart_wear_crit_percent = 95
+
+[logs]
+journal = true
+journal_priority = "warning"
+journal_max_lines = 300
+files = [
+  "/var/log/syslog",
+  "/var/log/kern.log",
+  "/var/log/auth.log",
+]
+dmesg = true
+max_lines_per_source = 200
+max_age_hours = 24
+
+[hosts.local]
+type = "local"
+smart = true
+smart_sudo = false
+
+# Exemple de Raspberry Pi / DietPi / autre machine avec SSH par clé.
+# Le target peut aussi être un alias de ~/.ssh/config.
+[hosts.raspberrypi]
+type = "ssh"
+target = "pi@raspberrypi.local"
+port = 22
+identity = "~/.ssh/id_ed25519"
+connect_timeout = 5
+smart = true
+smart_sudo = false

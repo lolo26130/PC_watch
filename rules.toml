@@ -1,0 +1,447 @@
+# Règles de diagnostic PC Watch.
+# Chaque règle est appliquée aux lignes de journaux récentes.
+# Les motifs sont des expressions régulières Python (recherche, insensible à la casse).
+
+[[rules]]
+id = "kernel_io_error"
+area = "disk"
+severity = "critical"
+pattern = '(?i)(I/O error|Buffer I/O error|critical medium error|blk_update_request: I/O error)'
+title = "Erreurs d'entrée/sortie disque"
+simple = "Le disque a du mal à lire ou à écrire."
+normal = "Le noyau signale des erreurs d'E/S sur un périphérique de stockage. Cela peut annoncer une panne imminente ou un câble défaillant."
+expert = "Motif kernel_io_error. Vérifier SMART, câbles, NVMe/ATA et le journal noyau."
+advice = "Sauvegardez les données importantes et inspectez le disque."
+commands = ["sudo smartctl -a /dev/nvme0n1", "journalctl -k -p warning -b"]
+
+[[rules]]
+id = "nvme_error"
+area = "disk"
+severity = "critical"
+pattern = '(?i)(nvme.*(?:timeout|reset|controller is down|I/O error|aborting)|nvme[0-9]+:.*(?:error|failed))'
+title = "Erreurs NVMe"
+simple = "Le disque NVMe signale des erreurs."
+normal = "Le contrôleur NVMe a signalé un timeout, un reset ou une erreur d'E/S. Le disque ou le lien PCIe peut être instable."
+expert = "Motif nvme_error. Vérifier nvme smart-log, dmesg, firmware et PCIe AER."
+advice = "Sauvegardez et surveillez le disque NVMe."
+commands = ["sudo nvme smart-log /dev/nvme0", "sudo smartctl -a /dev/nvme0n1", "journalctl -k -p warning -b"]
+
+[[rules]]
+id = "ata_error"
+area = "disk"
+severity = "critical"
+pattern = '(?i)(ata[0-9]+.*(?:error|failed|hard resetting|link is slow|exception Emask)|sd[a-z]+:.*(?:error|failed))'
+title = "Erreurs ATA/SATA"
+simple = "Le disque SATA a des erreurs."
+normal = "Le contrôleur ATA/SATA signale des erreurs, des resets ou un lien lent. Vérifiez le câble et le disque."
+expert = "Motif ata_error. Vérifier SMART, câble SATA, alimentation et dmesg."
+advice = "Sauvegardez et vérifiez le câblage du disque."
+commands = ["sudo smartctl -a /dev/sda", "journalctl -k -p warning -b"]
+
+[[rules]]
+id = "filesystem_error"
+area = "filesystem"
+severity = "critical"
+pattern = '(?i)(EXT4-fs error|XFS.*(?:corruption|error)|BTRFS.*(?:error|corruption)|filesystem.*corrupt)'
+title = "Erreur de système de fichiers"
+simple = "Le système de fichiers a détecté une erreur."
+normal = "Le noyau signale une corruption ou une erreur de système de fichiers. Une vérification (fsck) peut être nécessaire."
+expert = "Motif filesystem_error. Vérifier fsck, smartctl et les messages du noyau."
+advice = "Sauvegardez, puis vérifiez le système de fichiers hors ligne."
+commands = ["journalctl -k -p warning -b", "sudo smartctl -a /dev/nvme0n1"]
+
+[[rules]]
+id = "readonly_fs"
+area = "filesystem"
+severity = "critical"
+pattern = '(?i)(read-only file system|remounting filesystem read-only|filesystem.*read-only)'
+title = "Système de fichiers en lecture seule"
+simple = "Le disque est passé en lecture seule."
+normal = "Le noyau a remonté un système de fichiers en lecture seule, souvent après une erreur d'E/S. Les écritures vont échouer."
+expert = "Motif readonly_fs. Vérifier dmesg, SMART et l'espace disque."
+advice = "Sauvegardez immédiatement et redémarrez après avoir vérifié le disque."
+commands = ["mount | grep 'ro,'", "journalctl -k -p warning -b", "sudo smartctl -a /dev/nvme0n1"]
+
+[[rules]]
+id = "no_space"
+area = "filesystem"
+severity = "critical"
+pattern = '(?i)(No space left on device|Disk quota exceeded)'
+title = "Disque plein"
+simple = "Le disque est plein."
+normal = "Une écriture a échoué faute d'espace ou de quota. Les applications peuvent se comporter anormalement."
+expert = "Motif no_space. Vérifier df, les quotas et les gros fichiers."
+advice = "Libérez de l'espace ou augmentez le quota."
+commands = ["df -h", "du -xhd1 / 2>/dev/null | sort -h | tail -20"]
+
+[[rules]]
+id = "oom_killer"
+area = "memory"
+severity = "critical"
+pattern = '(?i)(Out of memory|oom-kill|Killed process .*total-vm|oom_reaper)'
+title = "Mémoire épuisée (OOM killer)"
+simple = "Le système a tué un programme par manque de mémoire."
+normal = "Le noyau a déclenché l'OOM killer. Un ou plusieurs processus ont été tués car la mémoire était épuisée."
+expert = "Motif oom_killer. Vérifier free, la croissance mémoire et les limites de service."
+advice = "Réduisez la consommation mémoire ou ajoutez de la RAM ; vérifiez les fuites."
+commands = ["free -h", "journalctl -k -p warning -b | grep -i oom", "ps aux --sort=-%mem | head -10"]
+
+[[rules]]
+id = "page_alloc_failure"
+area = "memory"
+severity = "warning"
+pattern = '(?i)(page allocation failure|order:[0-9]+.*allocation failure|SLUB.*corrupt)'
+title = "Pression mémoire noyau"
+simple = "Le noyau a du mal à allouer de la mémoire."
+normal = "Le noyau a échoué à allouer des pages mémoire. Cela peut provoquer des ralentissements ou des erreurs en cascade."
+expert = "Motif page_alloc_failure. Vérifier la fragmentation, les slabs et la mémoire disponible."
+advice = "Surveillez la mémoire et redémarrez si les erreurs persistent."
+commands = ["free -h", "cat /proc/meminfo", "journalctl -k -p warning -b | grep -i allocation"]
+
+[[rules]]
+id = "mce"
+area = "cpu"
+severity = "critical"
+pattern = '(?i)(Machine check|MCE|mce:.*Hardware Error|CPU[0-9]+:.*Machine Check)'
+title = "Erreur matérielle CPU"
+simple = "Le processeur a signalé une erreur matérielle."
+normal = "Une machine check exception (MCE) indique une erreur matérielle CPU/mémoire. Elle peut être corrigée ou fatale."
+expert = "Motif mce. Vérifier EDAC, memtest, microcode et le journal noyau."
+advice = "Sauvegardez, vérifiez la mémoire et le refroidissement ; consultez le matériel."
+commands = ["journalctl -k -p warning -b | grep -i -E 'mce|machine check'", "sudo dmesg -T | grep -i -E 'mce|machine check'"]
+
+[[rules]]
+id = "edac"
+area = "cpu"
+severity = "warning"
+pattern = '(?i)(EDAC|Corrected error.*memory|memory controller.*error)'
+title = "Erreurs mémoire corrigées"
+simple = "La mémoire a corrigé des erreurs."
+normal = "Le contrôleur mémoire (EDAC) a corrigé des erreurs. Répétées, elles peuvent annoncer une barrette défaillante."
+expert = "Motif edac. Vérifier les compteurs EDAC, memtest et les barrettes."
+advice = "Surveillez les compteurs et envisagez un test mémoire."
+commands = ["journalctl -k -p warning -b | grep -i edac", "grep . /sys/devices/system/edac/mc/mc*/ce_count 2>/dev/null"]
+
+[[rules]]
+id = "pcie_aer"
+area = "kernel"
+severity = "warning"
+pattern = '(?i)(PCIe Bus Error|AER:.*(?:error|corrected|uncorrected)|pcieport.*error)'
+title = "Erreurs PCIe"
+simple = "Un périphérique PCIe signale des erreurs."
+normal = "Le bus PCIe a signalé des erreurs AER. Elles peuvent être corrigées, mais des erreurs répétées indiquent un lien instable."
+expert = "Motif pcie_aer. Vérifier lspci -vv, le firmware et les erreurs corrected/uncorrected."
+advice = "Surveillez la répétition ; vérifiez le matériel et le firmware."
+commands = ["journalctl -k -p warning -b | grep -i -E 'aer|pcie'", "lspci -vv 2>/dev/null | grep -i -E 'AER|Correctable' | head -20"]
+
+[[rules]]
+id = "thermal"
+area = "thermal"
+severity = "warning"
+pattern = '(?i)(thermal.*(?:throttl|critical|trip)|CPU[0-9]+:.*temperature|throttled)'
+title = "Surchauffe ou throttling"
+simple = "Le processeur chauffe et ralentit."
+normal = "Le système signale une température élevée ou du throttling. Les performances peuvent chuter."
+expert = "Motif thermal. Vérifier sensors, la ventilation et la poussière."
+advice = "Nettoyez la ventilation et vérifiez les ventilateurs."
+commands = ["sensors", "journalctl -k -p warning -b | grep -i -E 'thermal|throttl'"]
+
+[[rules]]
+id = "kernel_oops"
+area = "kernel"
+severity = "critical"
+pattern = '(?i)(BUG:|Oops|general protection fault|kernel NULL pointer|invalid opcode)'
+title = "Erreur du noyau (oops)"
+simple = "Le noyau a rencontré un bug."
+normal = "Un oops ou un BUG noyau a été détecté. Le système peut être instable jusqu'au prochain redémarrage."
+expert = "Motif kernel_oops. Vérifier la trace, les modules et la version du noyau."
+advice = "Notez la trace et redémarrez ; vérifiez les modules/firmware."
+commands = ["journalctl -k -p warning -b", "uname -a"]
+
+[[rules]]
+id = "kernel_panic"
+area = "kernel"
+severity = "critical"
+pattern = '(?i)(kernel panic|panic - not syncing|Kernel panic)'
+title = "Kernel panic"
+simple = "Le noyau a planté."
+normal = "Un kernel panic a été enregistré. Le système a probablement redémarré brutalement."
+expert = "Motif kernel_panic. Vérifier la trace, le matériel et les derniers logs avant le reboot."
+advice = "Sauvegardez et analysez la cause avant de continuer."
+commands = ["journalctl -k -b -1 -p warning --no-pager", "journalctl --list-boots"]
+
+[[rules]]
+id = "hung_task"
+area = "kernel"
+severity = "warning"
+pattern = '(?i)(hung task|blocked for more than [0-9]+ seconds|task .* blocked for more)'
+title = "Tâche bloquée"
+simple = "Un programme est bloqué dans le noyau."
+normal = "Une tâche est restée bloquée plus de 120 secondes. Cela peut venir d'un disque lent ou d'un pilote."
+expert = "Motif hung_task. Vérifier la stack, le disque et les pilotes."
+advice = "Identifiez le périphérique ou le pilote impliqué."
+commands = ["journalctl -k -p warning -b | grep -i -A5 'hung task'", "cat /proc/loadavg"]
+
+[[rules]]
+id = "soft_lockup"
+area = "kernel"
+severity = "critical"
+pattern = '(?i)(soft lockup|rcu.*self-detected stall|watchdog: BUG: soft lockup)'
+title = "CPU bloqué (soft lockup)"
+simple = "Le processeur est resté bloqué."
+normal = "Un CPU est resté bloqué dans le noyau. Le système peut devenir très lent ou inutilisable."
+expert = "Motif soft_lockup. Vérifier la trace, les pilotes et le matériel."
+advice = "Redémarrez et analysez la trace du noyau."
+commands = ["journalctl -k -p warning -b | grep -i -A10 'lockup'", "uname -a"]
+
+[[rules]]
+id = "segfault"
+area = "services"
+severity = "warning"
+pattern = '(?i)(segfault at|traps: .* general protection|general protection fault.*(?:app|process))'
+title = "Programme planté (segfault)"
+simple = "Un programme a planté."
+normal = "Un processus a provoqué une erreur de segmentation. Cela peut être un bug applicatif ou une bibliothèque incompatible."
+expert = "Motif segfault. Identifier le binaire, la bibliothèque et le core dump."
+advice = "Vérifiez le programme concerné et ses mises à jour."
+commands = ["coredumpctl list 2>/dev/null | tail -10", "journalctl -b -p warning | grep -i segfault | tail -10"]
+
+[[rules]]
+id = "core_dump"
+area = "services"
+severity = "warning"
+pattern = '(?i)(core dumped|dumped core|coredump)'
+title = "Core dump"
+simple = "Un programme a laissé un core dump."
+normal = "Un processus a écrit un core dump après un crash. Cela peut aider à identifier la cause."
+expert = "Motif core_dump. Utiliser coredumpctl/gdb pour analyser."
+advice = "Analysez le core dump si le crash se répète."
+commands = ["coredumpctl list 2>/dev/null | tail -10", "ls -lh /var/lib/systemd/coredump 2>/dev/null | tail"]
+
+[[rules]]
+id = "systemd_failed"
+area = "services"
+severity = "warning"
+pattern = '(?i)(Failed to start|failed \(Result:|Unit .* entered failed state|Failed with result)'
+title = "Service systemd en échec"
+simple = "Un service système n'a pas démarré."
+normal = "Un service systemd est en échec. Il peut être secondaire, mais il faut vérifier son journal."
+expert = "Motif systemd_failed. Vérifier systemctl status et journalctl -u."
+advice = "Inspectez le service et corrigez la cause."
+commands = ["systemctl --failed", "journalctl -u <service> -b"]
+
+[[rules]]
+id = "service_crash"
+area = "services"
+severity = "warning"
+pattern = '(?i)(Main process exited, code=(?:killed|dumped)|service.*failed|Failed to start.*service)'
+title = "Service interrompu"
+simple = "Un service s'est arrêté anormalement."
+normal = "Le processus principal d'un service s'est terminé avec une erreur. Le service peut redémarrer en boucle."
+expert = "Motif service_crash. Vérifier le code de sortie et les logs du service."
+advice = "Vérifiez le service et ses dépendances."
+commands = ["systemctl --failed", "journalctl -b -p warning | grep -i 'Main process exited'"]
+
+[[rules]]
+id = "auth_failed"
+area = "security"
+severity = "warning"
+pattern = '(?i)(Failed password|authentication failure|pam_unix.*authentication failure|Invalid user)'
+title = "Échecs d'authentification"
+simple = "Quelqu'un a échoué à se connecter."
+normal = "Des tentatives de connexion ont échoué. Cela peut être une erreur de mot de passe ou une attaque par force brute."
+expert = "Motif auth_failed. Vérifier les IP sources, les comptes et fail2ban/sshguard."
+advice = "Vérifiez les sources et renforcez l'authentification (clés SSH, fail2ban)."
+commands = ["journalctl -u ssh -b -p warning --no-pager | tail -30", "lastb 2>/dev/null | head"]
+
+[[rules]]
+id = "sudo_denied"
+area = "security"
+severity = "warning"
+pattern = '(?i)(sudo:.*(?:incorrect password|not allowed|command not allowed)|user NOT in sudoers)'
+title = "Échec sudo"
+simple = "Une commande sudo a été refusée."
+normal = "Une tentative sudo a échoué (mot de passe ou autorisation). Vérifiez qui l'a lancée."
+expert = "Motif sudo_denied. Vérifier /etc/sudoers, l'utilisateur et l'heure."
+advice = "Vérifiez les droits sudo et l'activité de l'utilisateur."
+commands = ["journalctl -t sudo -b --no-pager | tail -20", "sudo -l"]
+
+[[rules]]
+id = "ufw_block"
+area = "security"
+severity = "info"
+pattern = '(?i)(UFW BLOCK|iptables.*DROP|nft.*drop)'
+title = "Trafic bloqué par le pare-feu"
+simple = "Le pare-feu a bloqué du trafic."
+normal = "Le pare-feu a bloqué des paquets. C'est souvent normal, mais une rafale peut indiquer un scan."
+expert = "Motif ufw_block. Vérifier les IP sources et la fréquence."
+advice = "Surveillez les rafales anormales."
+commands = ["sudo ufw status verbose", "journalctl -k -b | grep -i 'UFW BLOCK' | tail -20"]
+
+[[rules]]
+id = "link_down"
+area = "network"
+severity = "warning"
+pattern = '(?i)(link is down|carrier lost|NIC Link is Down|Link is Down|no carrier)'
+title = "Lien réseau coupé"
+simple = "Le réseau a été coupé."
+normal = "Une interface réseau a perdu son lien. Vérifiez le câble, le switch ou le Wi-Fi."
+expert = "Motif link_down. Vérifier ethtool, NetworkManager et les logs de l'interface."
+advice = "Vérifiez le câble/switch ou la connexion Wi-Fi."
+commands = ["ip -br link", "journalctl -b -p warning | grep -i -E 'link is down|carrier' | tail -20"]
+
+[[rules]]
+id = "wifi_deauth"
+area = "network"
+severity = "warning"
+pattern = '(?i)(deauthenticating|CTRL-EVENT-DISCONNECTED|wlan.*disconnect|association.*failed)'
+title = "Déconnexion Wi-Fi"
+simple = "Le Wi-Fi s'est déconnecté."
+normal = "La carte Wi-Fi s'est déauthentifiée ou a échoué à s'associer. Le signal ou le pilote peut être en cause."
+expert = "Motif wifi_deauth. Vérifier le signal, le canal, le pilote et NetworkManager."
+advice = "Rapprochez-vous du routeur ou vérifiez le pilote Wi-Fi."
+commands = ["nmcli device wifi list", "journalctl -u NetworkManager -b -p warning | tail -30"]
+
+[[rules]]
+id = "dhcp_failure"
+area = "network"
+severity = "warning"
+pattern = '(?i)(DHCP.*(?:failed|timeout|nak)|dhclient.*(?:failed|timeout)|no lease)'
+title = "Échec DHCP"
+simple = "L'adresse réseau n'a pas été obtenue."
+normal = "Le client DHCP n'a pas obtenu de bail. L'accès réseau peut être limité."
+expert = "Motif dhcp_failure. Vérifier le serveur DHCP, le bail et l'interface."
+advice = "Vérifiez le routeur/DHCP et renouvelez le bail."
+commands = ["nmcli device show", "journalctl -u NetworkManager -b | grep -i dhcp | tail -20"]
+
+[[rules]]
+id = "usb_disconnect"
+area = "kernel"
+severity = "info"
+pattern = '(?i)(USB disconnect|reset SuperSpeed|device descriptor read.*error|usb [0-9-]+:.*error)'
+title = "Périphérique USB déconnecté"
+simple = "Un périphérique USB a été déconnecté."
+normal = "Le noyau a signalé une déconnexion ou une erreur USB. Cela peut être un hub, un câble ou un périphérique."
+expert = "Motif usb_disconnect. Vérifier lsusb, dmesg et l'alimentation du hub."
+advice = "Vérifiez le câble et le hub USB."
+commands = ["lsusb", "journalctl -k -b | grep -i usb | tail -20"]
+
+[[rules]]
+id = "gpu_error"
+area = "kernel"
+severity = "warning"
+pattern = '(?i)(GPU.*(?:error|hang|reset|fault)|amdgpu.*(?:error|GPU reset)|i915.*(?:error|GPU HANG)|nouveau.*error)'
+title = "Erreur GPU"
+simple = "La carte graphique a signalé une erreur."
+normal = "Le pilote GPU a signalé un hang, un reset ou une erreur. L'affichage peut se figer."
+expert = "Motif gpu_error. Vérifier le pilote, le firmware et les logs GPU."
+advice = "Mettez à jour le pilote/firmware et surveillez les freezes."
+commands = ["journalctl -k -b -p warning | grep -i -E 'gpu|amdgpu|i915|nouveau' | tail -30", "glxinfo -B 2>/dev/null | head"]
+
+[[rules]]
+id = "firmware_error"
+area = "kernel"
+severity = "info"
+pattern = '(?i)(firmware.*(?:failed|error)|Direct firmware load.*failed|microcode.*(?:error|failed))'
+title = "Firmware ou microcode"
+simple = "Un firmware n'a pas pu être chargé."
+normal = "Le noyau n'a pas trouvé ou n'a pas pu charger un firmware. Un périphérique peut être dégradé."
+expert = "Motif firmware_error. Vérifier les paquets linux-firmware et le modèle du périphérique."
+advice = "Installez/mettez à jour le firmware correspondant."
+commands = ["journalctl -k -b | grep -i firmware | tail -20", "dmesg | grep -i firmware | tail -20"]
+
+[[rules]]
+id = "boot_error"
+area = "boot"
+severity = "warning"
+pattern = '(?i)(Failed to mount|dependency failed|emergency mode|Failed to start.*boot|Timed out waiting for device)'
+title = "Problème au démarrage"
+simple = "Un élément n'a pas démarré correctement."
+normal = "Le démarrage a rencontré un montage, un service ou un périphérique en échec. Le système peut être en mode dégradé."
+expert = "Motif boot_error. Vérifier les units, fstab et les périphériques attendus."
+advice = "Vérifiez les services et montages en échec."
+commands = ["systemctl --failed", "journalctl -b -p warning | head -50", "cat /etc/fstab"]
+
+[[rules]]
+id = "power_event"
+area = "power"
+severity = "info"
+pattern = '(?i)(ACPI.*(?:error|battery|thermal)|power supply.*(?:failed|error)|battery.*(?:critical|low))'
+title = "Événement alimentation/ACPI"
+simple = "Un événement d'alimentation a été signalé."
+normal = "ACPI ou la batterie a signalé un événement. Cela peut être une baisse de tension ou un problème de charge."
+expert = "Motif power_event. Vérifier upower, la batterie et les logs ACPI."
+advice = "Surveillez la batterie et l'alimentation."
+commands = ["upower -d 2>/dev/null | head -30", "journalctl -k -b | grep -i -E 'acpi|battery' | tail -20"]
+
+[[rules]]
+id = "smart_log_error"
+area = "disk"
+severity = "critical"
+pattern = '(?i)(SMART (?:error|failure)|SMART overall-health.*FAILED|Self-test.*failed)'
+title = "SMART en échec"
+simple = "Le disque a échoué à un test de santé."
+normal = "SMART signale un échec de santé ou d'auto-test. Le disque doit être remplacé rapidement."
+expert = "Motif smart_log_error. Vérifier smartctl -a et sauvegarder."
+advice = "Sauvegardez immédiatement et remplacez le disque."
+commands = ["sudo smartctl -a /dev/nvme0n1", "sudo smartctl -t short /dev/nvme0n1"]
+
+[[rules]]
+id = "journal_error"
+area = "kernel"
+severity = "warning"
+pattern = '(?i)(systemd-journald.*(?:failed|error)|Journal file.*corrupt)'
+title = "Journal systemd en difficulté"
+simple = "Le journal système a un problème."
+normal = "systemd-journald signale une erreur ou un fichier de journal corrompu. Les logs peuvent être incomplets."
+expert = "Motif journal_error. Vérifier l'espace, les permissions et journalctl --verify."
+advice = "Vérifiez l'espace disque et l'intégrité du journal."
+commands = ["journalctl --disk-usage", "journalctl --verify 2>/dev/null | tail -20"]
+
+[[rules]]
+id = "motd_news"
+area = "services"
+severity = "info"
+pattern = '(?i)(motd-news\.service.*failed|Failed to start motd-news)'
+title = "Service motd-news"
+simple = "Le message d'accueil n'a pas pu être mis à jour."
+normal = "motd-news.service a échoué. C'est généralement sans impact sur le système."
+expert = "Motif motd_news. Vérifier le service et sa connexion réseau."
+advice = "Sans gravité ; peut être ignoré ou corrigé."
+commands = ["systemctl status motd-news.service", "journalctl -u motd-news.service -b"]
+
+[[rules]]
+id = "snap_error"
+area = "services"
+severity = "info"
+pattern = '(?i)(snapd.*(?:error|failed)|snap.*mount.*failed)'
+title = "Erreur snap"
+simple = "Un paquet snap a eu un problème."
+normal = "snapd ou un montage snap a échoué. Cela peut être sans impact si vous n'utilisez pas ce paquet."
+expert = "Motif snap_error. Vérifier snap list, les montages et les logs snapd."
+advice = "Vérifiez les paquets snap concernés."
+commands = ["snap list 2>/dev/null", "journalctl -u snapd -b -p warning | tail -20"]
+
+[[rules]]
+id = "nvidia_error"
+area = "kernel"
+severity = "warning"
+pattern = '(?i)(NVRM|Xid|nvidia.*(?:error|failed))'
+title = "Erreur pilote NVIDIA"
+simple = "Le pilote NVIDIA a signalé une erreur."
+normal = "Le pilote NVIDIA a signalé une erreur (NVRM/Xid). L'affichage ou le calcul GPU peut être instable."
+expert = "Motif nvidia_error. Vérifier nvidia-smi, le pilote et les Xid."
+advice = "Mettez à jour le pilote et surveillez les Xid."
+commands = ["nvidia-smi 2>/dev/null", "journalctl -k -b | grep -i -E 'NVRM|Xid|nvidia' | tail -30"]
+
+[[rules]]
+id = "disk_timeout"
+area = "disk"
+severity = "critical"
+pattern = '(?i)(timed out.*(?:disk|nvme|ata)|task .* blocked.*disk|I/O.*timeout)'
+title = "Timeout d'entrée/sortie"
+simple = "Le disque ne répond plus assez vite."
+normal = "Une opération d'E/S a expiré. Le disque, le câble ou le contrôleur peut être en cause."
+expert = "Motif disk_timeout. Vérifier SMART, dmesg et la charge I/O."
+advice = "Sauvegardez et vérifiez le disque et son câblage."
+commands = ["journalctl -k -p warning -b | grep -i -E 'timeout|blocked'", "sudo smartctl -a /dev/nvme0n1"]
