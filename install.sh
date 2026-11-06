@@ -11,10 +11,12 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 mkdir -p "$BIN"
-chmod +x "$DIR/pcwatch.py"
+chmod +x "$DIR/pcwatch.py" "$DIR/pcwatch_lan.py"
 ln -sf "$DIR/pcwatch.py" "$BIN/pcwatch"
+ln -sf "$DIR/pcwatch_lan.py" "$BIN/pcwatch-lan"
 
 echo "✓ ${BIN}/pcwatch -> ${DIR}/pcwatch.py"
+echo "✓ ${BIN}/pcwatch-lan -> ${DIR}/pcwatch_lan.py"
 case ":${PATH}:" in
 	*":${BIN}:"*) ;;
 	*) echo "⚠ ajoute ${BIN} à ton PATH" >&2 ;;

@@ -28,6 +28,11 @@ type = "ssh"
 target = "pi@example.local"
 port = 2222
 identity = "~/.ssh/id_ed25519"
+
+[monitor]
+session = "pclan"
+interval = 45
+hosts = ["local", "raspberrypi"]
 """,
         encoding="utf-8",
     )
@@ -40,6 +45,9 @@ identity = "~/.ssh/id_ed25519"
     assert host.type == "ssh"
     assert host.target == "pi@example.local"
     assert host.port == 2222
+    assert config.monitor["session"] == "pclan"
+    assert config.monitor["interval"] == 45
+    assert config.monitor["hosts"] == ["local", "raspberrypi"]
 
 
 def test_adhoc_ssh_host():

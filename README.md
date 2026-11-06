@@ -17,6 +17,7 @@ cd /home/laurent/scripts/Utilitaires_uv/PC_watch
 # commande pcwatch dans ~/.local/bin (déjà dans le PATH)
 ./install.sh
 pcwatch --version
+pcwatch-lan --version
 ```
 
 Le shebang `#!/usr/bin/env -S uv run --script` fait installer automatiquement
@@ -32,6 +33,7 @@ alias pcwatch='uv run --script /home/laurent/scripts/Utilitaires_uv/PC_watch/pcw
 
 ```sh
 sudo ln -sf /home/laurent/scripts/Utilitaires_uv/PC_watch/pcwatch.py /usr/local/bin/pcwatch
+sudo ln -sf /home/laurent/scripts/Utilitaires_uv/PC_watch/pcwatch_lan.py /usr/local/bin/pcwatch-lan
 ```
 
 Moins recommandé : `uv`, le cache et la configuration sont par utilisateur.
@@ -206,10 +208,58 @@ systemctl --user enable --now pcwatch.timer
 journalctl --user -u pcwatch.service -f
 ```
 
+## Plusieurs machines dans tmux
+
+`install.sh` installe aussi `pcwatch-lan`, qui crée une session tmux avec
+**une fenêtre par machine** :
+
+```sh
+pcwatch-lan --list                  # dry-run : commandes prévues
+pcwatch-lan                         # hôtes de [monitor].hosts
+pcwatch-lan local pi1_emule_300GB_HD DietPiHole piscreen
+pcwatch-lan --all-ssh               # ajoute les alias de ~/.ssh/config
+```
+
+Configuration :
+
+```toml
+[monitor]
+session = "pcwatch"
+interval = 60
+hosts = ["local", "raspberrypi"]
+```
+
+- un nom présent dans `[hosts.*]` est lancé avec `pcwatch --host <nom>` ;
+- un nom absent est traité comme un alias SSH et lancé avec
+  `pcwatch --ssh <alias>` ;
+- `--all-ssh` ajoute les alias de `~/.ssh/config` (hors motifs et
+  `169.254.*`) ;
+- `--interval`, `--verbosity` et `--simplicity` sont transmis à chaque
+  `pcwatch` ;
+- `--restart` recrée la session, `--kill` l’arrête, `--no-attach` la crée
+  sans s’y attacher ;
+- si la session existe déjà, `pcwatch-lan` s’y attache (ou fait
+  `switch-client` si tu es déjà dans tmux).
+
+Navigation dans tmux :
+
+```text
+Ctrl-b w      liste des fenêtres
+Ctrl-b n/p    fenêtre suivante/précédente
+Ctrl-b 1/2…   accès direct
+q             quitte le pcwatch de la fenêtre
+tmux kill-session -t pcwatch
+```
+
+Le wrapper ne scanne pas le réseau : il faut que les machines soient
+joignables en SSH par clé (ou locales). C’est volontairement explicite pour
+éviter de lancer des TUI sur des adresses qui ne répondent pas.
+
 ## Architecture
 
 ```text
 pcwatch.py                  shebang uv + PEP 723, point d'entrée
+pcwatch_lan.py              lanceur tmux multi-machines
 pcwatch_lib/
   cli.py                    argparse, --once/--json/--demo/--host/--ssh
   config.py                 TOML, defaults, hôtes, seuils

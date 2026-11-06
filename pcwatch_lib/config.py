@@ -77,6 +77,11 @@ DEFAULTS: dict[str, Any] = {
             "smart_sudo": False,
         }
     },
+    "monitor": {
+        "session": "pcwatch",
+        "interval": 0,
+        "hosts": [],
+    },
 }
 
 
@@ -107,6 +112,7 @@ class Config:
     thresholds: dict[str, Any]
     logs: dict[str, Any]
     hosts: dict[str, HostConfig]
+    monitor: dict[str, Any]
     path: Path
     rules_path: Path
     rules_local_path: Path
@@ -213,6 +219,25 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         files = []
     logs["files"] = [_expand(str(f)) for f in files]
 
+    monitor_raw = merged.get("monitor", {})
+    if not isinstance(monitor_raw, dict):
+        warnings.append("monitor doit être une table TOML, valeur ignorée")
+        monitor_raw = {}
+    monitor_hosts = monitor_raw.get("hosts", [])
+    if not isinstance(monitor_hosts, list):
+        warnings.append("monitor.hosts doit être une liste, valeur ignorée")
+        monitor_hosts = []
+    monitor_hosts = [str(h).strip() for h in monitor_hosts if str(h).strip()]
+    try:
+        monitor_interval = max(0, int(monitor_raw.get("interval", 0)))
+    except (TypeError, ValueError):
+        monitor_interval = 0
+    monitor = {
+        "session": str(monitor_raw.get("session", "pcwatch")) or "pcwatch",
+        "interval": monitor_interval,
+        "hosts": monitor_hosts,
+    }
+
     hosts: dict[str, HostConfig] = {}
     for name, spec in merged.get("hosts", {}).items():
         if not isinstance(spec, dict):
@@ -251,6 +276,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
         thresholds=thresholds,
         logs=logs,
         hosts=hosts,
+        monitor=monitor,
         path=config_path,
         rules_path=rules_path,
         rules_local_path=rules_local,

@@ -56,3 +56,10 @@ identity = "~/.ssh/id_ed25519"
 connect_timeout = 5
 smart = true
 smart_sudo = false
+
+# Machines affichées par `pcwatch-lan` (une fenêtre tmux par hôte).
+# Les noms absents de [hosts.*] sont traités comme des alias ~/.ssh/config.
+[monitor]
+session = "pcwatch"
+interval = 60
+hosts = ["local", "raspberrypi"]
