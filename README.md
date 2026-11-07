@@ -64,10 +64,25 @@ Codes de sortie de `--once` : `0` OK, `1` avertissement, `2` critique.
 r   rafraîchir          a   analyser maintenant
 v   verbosité           s   simplicité
 p   pause/reprise       m   changer d'hôte
+t   terminal / SSH      c   commande → terminal
 h   aide                q   quitter
 ```
 
 Onglets : **Diagnostic**, **Capteurs**, **Journaux**, **Hôte / Aide**.
+
+### Terminal / SSH
+
+`t` ouvre un terminal sur l'hôte analysé : `ssh` interactif (mot de passe,
+passphrase ou 2FA possibles) pour un hôte SSH, shell local sinon.
+
+Sous tmux (`pcwatch-lan`), le terminal s'ouvre en panneau sous la TUI et
+est réutilisé si on rappuie sur `t`. Hors tmux, la TUI est suspendue puis
+restaurée à la sortie du shell.
+
+`c` tape la ou les commandes du constat sélectionné dans ce panneau, sans
+appuyer sur Entrée : relisez, complétez les éventuels placeholders
+(`<service>`, …), puis validez. Le panneau doit déjà être connecté ; sinon,
+`t` d'abord, puis `c` après la connexion.
 
 Les constats sont conservés dans la session pendant `finding_ttl_seconds`
 (1 h par défaut), même si le journal ne les répète plus à chaque cycle.

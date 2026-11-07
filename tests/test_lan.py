@@ -67,7 +67,15 @@ def test_resolve_hosts_explicit():
 
 
 def test_list_cli(capsys):
-    rc = pcwatch_lan.main(["--list", "--hosts", "local,pi1_emule_300GB_HD"])
+    rc = pcwatch_lan.main(
+        [
+            "--config",
+            "/tmp/pcwatch-missing-lan.toml",
+            "--list",
+            "--hosts",
+            "local,pi1_emule_300GB_HD",
+        ]
+    )
     captured = capsys.readouterr()
     assert rc == 0
     assert "session:" in captured.out

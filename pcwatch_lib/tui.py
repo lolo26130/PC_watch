@@ -25,6 +25,14 @@ from .config import SIMPLICITIES, VERBOSITIES, Config, HostConfig
 from .doctor import doctor_text, health_bar, vitals_line
 from .models import Finding, HealthReport, SEVERITY_LABEL, SEVERITY_ORDER
 from .rules import Rule, score_findings, verdict_for
+from .terminal import (
+    TerminalError,
+    in_tmux,
+    open_pane,
+    pane_alive,
+    run_interactive,
+    send_literal,
+)
 
 SEVERITY_STYLE = {
     "info": "cyan",
@@ -88,6 +96,8 @@ class PCWatchApp(App):
         Binding("s", "cycle_simplicity", "Simplicité"),
         Binding("p", "toggle_pause", "Pause"),
         Binding("m", "cycle_host", "Hôte"),
+        Binding("t", "terminal", "Term/SSH"),
+        Binding("c", "send_command", "Cmd → term"),
         Binding("h", "help", "Aide"),
         Binding("q", "quit", "Quitter"),
     ]
@@ -114,6 +124,8 @@ class PCWatchApp(App):
         self.last_report: Optional[HealthReport] = None
         self.history: dict[str, Finding] = {}
         self._finding_map: dict[str, Finding] = {}
+        self._current_finding: Optional[Finding] = None
+        self._term_panes: dict[str, str] = {}
         self.host_names = ["demo-pc"] if demo else config.host_names()
         try:
             self.host_index = self.host_names.index(host.name)
@@ -160,6 +172,8 @@ class PCWatchApp(App):
             "  s   cycler simple / normal / expert",
             "  p   pause / reprise du rafraîchissement périodique",
             "  m   changer d'hôte (local / SSH)",
+            "  t   ouvrir un terminal local / SSH sur l'hôte analysé",
+            "  c   taper la commande du constat dans ce terminal (sans l'exécuter)",
             "  h   cette aide",
             "  q   quitter",
             "",
@@ -229,6 +243,8 @@ class PCWatchApp(App):
         self._update_status(report)
         if report.findings:
             self._show_finding_detail(report.findings[0])
+        else:
+            self._current_finding = None
 
     def _render_summary(self, report: HealthReport) -> None:
         text = Text()
@@ -294,7 +310,10 @@ class PCWatchApp(App):
             log.write(text)
 
     def _update_status(self, report: HealthReport) -> None:
-        actions = "r rafraîchir · a analyser · v verbosité · s simplicité · p pause · m hôte · q quitter"
+        actions = (
+            "r rafraîchir · a analyser · v verbosité · s simplicité · p pause · "
+            "m hôte · t term/ssh · c commande · q quitter"
+        )
         status = (
             f"Hôte: {report.host} ({report.host_type}) · "
             f"V:{self.verbosity} · S:{self.simplicity} · "
@@ -306,6 +325,7 @@ class PCWatchApp(App):
         self.query_one("#status", Static).update(Text(status, style="dim"))
 
     def _show_finding_detail(self, finding: Finding) -> None:
+        self._current_finding = finding
         lines = [
             finding.title,
             "",
@@ -370,8 +390,58 @@ class PCWatchApp(App):
         except KeyError as exc:
             self.notify(str(exc), severity="error")
             return
+        self._current_finding = None
         self.notify(f"Hôte : {name}")
         self.refresh_report()
+
+    def _open_terminal(self) -> bool:
+        if self.demo:
+            self.notify("Aucun terminal pour l'hôte de démonstration", severity="warning")
+            return False
+        try:
+            if in_tmux():
+                pane = open_pane(self.host, self._term_panes.get(self.host.name))
+                self._term_panes[self.host.name] = pane
+            else:
+                with self.suspend():
+                    run_interactive(self.host)
+                self.refresh_report()
+        except TerminalError as exc:
+            self.notify(f"Terminal : {exc}", severity="error")
+            return False
+        return True
+
+    def action_terminal(self) -> None:
+        if self._open_terminal() and in_tmux():
+            self.notify(f"Terminal ouvert : {self.host.name}")
+
+    def action_send_command(self) -> None:
+        finding = self._current_finding
+        if not finding or not finding.commands:
+            self.notify("Aucune commande pour ce constat", severity="warning")
+            return
+        if not in_tmux():
+            self.notify(
+                "L'envoi de commande nécessite tmux (utilisez t pour le terminal)",
+                severity="warning",
+            )
+            return
+        pane = self._term_panes.get(self.host.name, "")
+        if not pane_alive(pane):
+            self._term_panes.pop(self.host.name, None)
+            if not self._open_terminal():
+                return
+            self.notify(
+                "Terminal ouvert : connectez-vous, puis appuyez à nouveau sur c"
+            )
+            return
+        try:
+            send_literal(pane, " ; ".join(finding.commands))
+        except TerminalError as exc:
+            self._term_panes.pop(self.host.name, None)
+            self.notify(f"Terminal : {exc}", severity="error")
+            return
+        self.notify("Commande tapée dans le terminal — relisez puis Entrée")
 
     def action_help(self) -> None:
         self.query_one(TabbedContent).active = "tab-help"
