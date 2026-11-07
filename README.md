@@ -64,7 +64,7 @@ Codes de sortie de `--once` : `0` OK, `1` avertissement, `2` critique.
 r   rafraîchir          a   analyser maintenant
 v   verbosité           s   simplicité
 p   pause/reprise       m   changer d'hôte
-t   terminal / SSH      c   commande → terminal
+t   terminal / SSH      c   choisir une commande → terminal
 h   aide                q   quitter
 ```
 
@@ -79,10 +79,13 @@ Sous tmux (`pcwatch-lan`), le terminal s'ouvre en panneau sous la TUI et
 est réutilisé si on rappuie sur `t`. Hors tmux, la TUI est suspendue puis
 restaurée à la sortie du shell.
 
-`c` tape la ou les commandes du constat sélectionné dans ce panneau, sans
-appuyer sur Entrée : relisez, complétez les éventuels placeholders
-(`<service>`, …), puis validez. Le panneau doit déjà être connecté ; sinon,
-`t` d'abord, puis `c` après la connexion.
+`c` affiche les commandes du constat sélectionné dans une liste surlignée :
+`↑`/`↓` puis `Entrée` pour en envoyer une seule, ou `1`–`9` pour choisir
+directement, `Échap` pour annuler. La commande est tapée dans le panneau
+sans appuyer sur Entrée : relisez, complétez les éventuels placeholders
+(`<service>`, …), puis validez. S'il n'y a qu'une commande, elle est tapée
+immédiatement. Le panneau doit déjà être connecté ; sinon, `t` d'abord,
+puis `c` après la connexion.
 
 Les constats sont conservés dans la session pendant `finding_ttl_seconds`
 (1 h par défaut), même si le journal ne les répète plus à chaque cycle.

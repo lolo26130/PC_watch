@@ -6,19 +6,22 @@ from datetime import datetime
 from typing import Optional
 
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.screen import ModalScreen
 from textual.widgets import (
     DataTable,
     Footer,
     Header,
+    OptionList,
     RichLog,
     Static,
     TabbedContent,
     TabPane,
 )
+from textual.widgets.option_list import Option
 
 from .analyzer import collect_and_analyze
 from .config import SIMPLICITIES, VERBOSITIES, Config, HostConfig
@@ -45,6 +48,74 @@ STATUS_STYLE = {
     "warning": "yellow",
     "critical": "bold red",
 }
+
+
+class CommandPicker(ModalScreen[str | None]):
+    """Sélecteur de la commande d'un constat à taper dans le terminal."""
+
+    CSS = """
+    CommandPicker {
+        align: center middle;
+    }
+    #command-dialog {
+        width: 95%;
+        max-width: 160;
+        height: auto;
+        max-height: 80%;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #command-options {
+        height: auto;
+        max-height: 20;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Annuler"),
+        Binding("q", "cancel", "Annuler", show=False),
+    ]
+
+    def __init__(self, finding: Finding) -> None:
+        super().__init__()
+        self.finding = finding
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="command-dialog"):
+            yield Static(Text(self.finding.title or "Commandes", style="bold"))
+            yield Static(
+                Text(
+                    "↑/↓ choisir · Entrée envoyer · 1-9 direct · Échap annuler",
+                    style="dim",
+                )
+            )
+            yield OptionList(
+                *[
+                    Option(Text(f"{index}. {command}"), id=str(index - 1))
+                    for index, command in enumerate(self.finding.commands, 1)
+                ],
+                id="command-options",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one(OptionList).focus()
+
+    def on_option_list_option_selected(
+        self, event: OptionList.OptionSelected
+    ) -> None:
+        event.stop()
+        self.dismiss(str(event.option.id))
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key.isdigit():
+            index = int(event.key) - 1
+            if 0 <= index < len(self.finding.commands):
+                event.stop()
+                self.dismiss(str(index))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class PCWatchApp(App):
@@ -173,7 +244,7 @@ class PCWatchApp(App):
             "  p   pause / reprise du rafraîchissement périodique",
             "  m   changer d'hôte (local / SSH)",
             "  t   ouvrir un terminal local / SSH sur l'hôte analysé",
-            "  c   taper la commande du constat dans ce terminal (sans l'exécuter)",
+            "  c   choisir puis taper une commande du constat dans ce terminal (sans l'exécuter)",
             "  h   cette aide",
             "  q   quitter",
             "",
@@ -334,7 +405,13 @@ class PCWatchApp(App):
         if finding.advice:
             lines += ["", f"Conseil : {finding.advice}"]
         if finding.commands:
-            lines += ["", "Commandes :"] + [f"  {c}" for c in finding.commands]
+            if len(finding.commands) == 1:
+                lines += ["", "Commande (c pour l'envoyer) :", f"  1. {finding.commands[0]}"]
+            else:
+                lines += ["", "Commandes (c pour choisir) :"] + [
+                    f"  {index}. {command}"
+                    for index, command in enumerate(finding.commands, 1)
+                ]
         if finding.evidence:
             lines += ["", "Preuves :"] + [f"  {e}" for e in finding.evidence[:4]]
         self.query_one("#finding-detail", Static).update(Text("\n".join(lines), style="dim"))
@@ -415,6 +492,24 @@ class PCWatchApp(App):
         if self._open_terminal() and in_tmux():
             self.notify(f"Terminal ouvert : {self.host.name}")
 
+    def _send_command(self, command: str) -> None:
+        pane = self._term_panes.get(self.host.name, "")
+        if not pane_alive(pane):
+            self._term_panes.pop(self.host.name, None)
+            if not self._open_terminal():
+                return
+            self.notify(
+                "Terminal ouvert : connectez-vous, puis appuyez à nouveau sur c"
+            )
+            return
+        try:
+            send_literal(pane, command)
+        except TerminalError as exc:
+            self._term_panes.pop(self.host.name, None)
+            self.notify(f"Terminal : {exc}", severity="error")
+            return
+        self.notify("Commande tapée dans le terminal — relisez puis Entrée")
+
     def action_send_command(self) -> None:
         finding = self._current_finding
         if not finding or not finding.commands:
@@ -426,22 +521,25 @@ class PCWatchApp(App):
                 severity="warning",
             )
             return
-        pane = self._term_panes.get(self.host.name, "")
-        if not pane_alive(pane):
-            self._term_panes.pop(self.host.name, None)
-            if not self._open_terminal():
+        commands = list(finding.commands)
+        if len(commands) == 1:
+            self._send_command(commands[0])
+            return
+        host_name = self.host.name
+
+        def chosen(choice: str | None) -> None:
+            if choice is None:
                 return
-            self.notify(
-                "Terminal ouvert : connectez-vous, puis appuyez à nouveau sur c"
-            )
-            return
-        try:
-            send_literal(pane, " ; ".join(finding.commands))
-        except TerminalError as exc:
-            self._term_panes.pop(self.host.name, None)
-            self.notify(f"Terminal : {exc}", severity="error")
-            return
-        self.notify("Commande tapée dans le terminal — relisez puis Entrée")
+            if self.host.name != host_name:
+                self.notify("L'hôte a changé : commande non envoyée", severity="warning")
+                return
+            try:
+                command = commands[int(choice)]
+            except (ValueError, IndexError):
+                return
+            self._send_command(command)
+
+        self.push_screen(CommandPicker(finding), chosen)
 
     def action_help(self) -> None:
         self.query_one(TabbedContent).active = "tab-help"
